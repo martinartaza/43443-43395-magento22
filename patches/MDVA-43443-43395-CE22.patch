@@ -1,0 +1,198 @@
+diff --git a/vendor/magento/module-email/Model/Template/Filter.php b/vendor/magento/module-email/Model/Template/Filter.php
+index 7ac9b944..1e6e5d6e 100644
+--- a/Model/Template/Filter.php
++++ b/Model/Template/Filter.php
+@@ -369,14 +369,14 @@ class Filter extends \Magento\Framework\Filter\Template
+     }
+
+     /**
+-     * Retrieve Block html directive
++     * Resolver retrieve Block html directive
+      *
+      * @param array $construction
+      * @return string
+      * @SuppressWarnings(PHPMD.CyclomaticComplexity)
+      * @SuppressWarnings(PHPMD.NPathComplexity)
+      */
+-    public function blockDirective($construction)
++    private function resolveBlockDirective($construction)
+     {
+         $skipParams = ['class', 'id', 'output'];
+         $blockParameters = $this->getParameters($construction[2]);
+@@ -417,12 +417,25 @@ class Filter extends \Magento\Framework\Filter\Template
+     }
+
+     /**
+-     * Retrieve layout html directive
++     * Retrieve Block html directive
++     * @param array $construction
++     * @return string
++     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
++     * @SuppressWarnings(PHPMD.NPathComplexity)
++     */
++    public function blockDirective($construction)
++    {
++        $result = $this->resolveBlockDirective($construction);
++        return preg_replace("/{{/", "&#123;&#123;", $result);
++    }
++
++    /**
++     * Resolver retrieve layout html directive
+      *
+      * @param string[] $construction
+      * @return string
+      */
+-    public function layoutDirective($construction)
++    private function resolveLayoutDirective($construction)
+     {
+         $this->_directiveParams = $this->getParameters($construction[2]);
+         if (!isset($this->_directiveParams['area'])) {
+@@ -438,6 +451,18 @@ class Filter extends \Magento\Framework\Filter\Template
+         }
+     }
+
++    /**
++     * Retrieve layout html directive
++     *
++     * @param string[] $construction
++     * @return string
++     */
++    public function layoutDirective($construction)
++    {
++        $result = $this->resolveLayoutDirective($construction);
++        return preg_replace("/{{/", "&#123;&#123;", $result);
++    }
++
+     /**
+      * Retrieve layout html directive callback
+      *
+@@ -505,7 +530,7 @@ class Filter extends \Magento\Framework\Filter\Template
+     {
+         $params = $this->getParameters($construction[2]);
+         $url = $this->_assetRepo->getUrlWithParams($params['url'], $params);
+-        return $url;
++        return $this->sanitizeValue($url);
+     }
+
+     /**
+@@ -517,8 +542,10 @@ class Filter extends \Magento\Framework\Filter\Template
+     public function mediaDirective($construction)
+     {
+         $params = $this->getParameters($construction[2]);
+-        return $this->_storeManager->getStore()
+-            ->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_MEDIA) . $params['url'];
++        return $this->sanitizeValue(
++            $this->_storeManager->getStore()
++                ->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_MEDIA) . $params['url']
++        );
+     }
+
+     /**
+@@ -555,7 +582,7 @@ class Filter extends \Magento\Framework\Filter\Template
+             unset($params['url']);
+         }
+
+-        return $this->urlModel->getUrl($path, $params);
++        return $this->sanitizeValue($this->urlModel->getUrl($path, $params));
+     }
+
+     /**
+@@ -592,8 +619,13 @@ class Filter extends \Magento\Framework\Filter\Template
+             return '';
+         }
+
++        $pattern = '/{{.*?}}/';
++        do {
++            $text = preg_replace($pattern, '', (string)$text);
++        } while (preg_match($pattern, $text));
++
+         $text = __($text, $params)->render();
+-        return $this->applyModifiers($text, $modifiers);
++        return $this->applyModifiers($this->sanitizeValue($text), $modifiers);
+     }
+
+     /**
+@@ -634,7 +666,9 @@ class Filter extends \Magento\Framework\Filter\Template
+         }
+
+         list($directive, $modifiers) = $this->explodeModifiers($construction[2], 'escape');
+-        return $this->applyModifiers($this->getVariable($directive, ''), $modifiers);
++
++        $result = $this->sanitizeValue($this->getVariable($directive, ''));
++        return $this->applyModifiers($result, $modifiers);
+     }
+
+     /**
+@@ -712,7 +746,7 @@ class Filter extends \Magento\Framework\Filter\Template
+     }
+
+     /**
+-     * HTTP Protocol directive
++     * Resolve HTTP Protocol directive
+      *
+      * Usage:
+      *
+@@ -725,7 +759,7 @@ class Filter extends \Magento\Framework\Filter\Template
+      * @throws \Magento\Framework\Exception\MailException
+      * @return string
+      */
+-    public function protocolDirective($construction)
++    private function resolveProtocolDirective($construction)
+     {
+         $params = $this->getParameters($construction[2]);
+         $store = null;
+@@ -752,6 +786,20 @@ class Filter extends \Magento\Framework\Filter\Template
+         return $protocol;
+     }
+
++    /**
++     * Return protocol directive
++     *
++     * @param string[] $construction
++     * @throws \Magento\Framework\Exception\MailException
++     * @return string
++     */
++    public function protocolDirective($construction)
++    {
++    return $this->sanitizeValue(
++            $this->resolveProtocolDirective($construction)
++        );
++    }
++
+     /**
+      * Store config directive
+      *
+@@ -770,7 +818,7 @@ class Filter extends \Magento\Framework\Filter\Template
+                 $storeId
+             );
+         }
+-        return $configValue;
++        return $this->sanitizeValue($configValue);
+     }
+
+     /**
+@@ -811,7 +859,7 @@ class Filter extends \Magento\Framework\Filter\Template
+                 $customVarValue = $value;
+             }
+         }
+-        return $customVarValue;
++        return $this->sanitizeValue($customVarValue);
+     }
+
+     /**
+@@ -1036,4 +1084,15 @@ class Filter extends \Magento\Framework\Filter\Template
+         }
+         return $value;
+     }
++
++    /**
++     * @param string $value
++     *
++     * @return string|bool
++     */
++
++    private function sanitizeValue($value)
++    {
++        return is_bool($value) ? $value : str_replace(['{', '}'], '', (string) $value);
++    }
+ }
